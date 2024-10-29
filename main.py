@@ -9,6 +9,7 @@ from datetime import datetime
 from PyCameraList.camera_device import list_video_devices
 from tkinter import ttk
 import os
+from ultralytics import YOLO
 
 DELAYTIME = 0.1
 
@@ -22,6 +23,8 @@ latest_frames = [None, None, None]  # 存儲最新捕獲的影像
 
 global_updateCameraFlag = [False, False, False]
 
+model = YOLO("trained_model.pt")
+
 def research_camera_options():
     # 取得當前的 camera devices 列表
     cameras = list_video_devices()
@@ -32,10 +35,10 @@ def research_camera_options():
     boxs[2]['values'] = cameras
 
     # 選擇 Combobox 的第一個項目
-    # if cameras:
-    #     boxs[0].set(cameras[0])
-    #     boxs[1].set(cameras[1])
-    #     boxs[2].set(cameras[2])
+    if cameras:
+        boxs[0].set(cameras[0])
+        boxs[1].set(cameras[1])
+        boxs[2].set(cameras[2])
         
 def update_camera_options():
     global global_updateCameraFlag
@@ -108,6 +111,12 @@ def process_image(camera_index, columnIndex, image_label, output_prefix, status_
                     _, display_frame = cv2.threshold(gray_frame, binary_threshold_values[columnIndex], 255, cv2.THRESH_BINARY)  # 應用二質化
                 else:
                     display_frame = frame  # 使用原始影像
+                    
+                    results = model.predict(
+                        source=[display_frame]
+                    ) 
+                    
+                    
 
                 latest_frames[columnIndex] = frame.copy()  # 保存最新影像
                 
@@ -120,6 +129,23 @@ def process_image(camera_index, columnIndex, image_label, output_prefix, status_
                 elif recording:
                     out.release()
                     recording = False
+                    
+                    
+                for i, result in enumerate(results):
+                    
+                    display_frame = result.plot()
+
+                    boxes = result.boxes.xyxy  # 邊界框的 (xmin, ymin, xmax, ymax) 座標
+                    labels = result.boxes.cls  # 邊界框的類別標籤
+                    
+                    # 遍歷每個邊界框，篩選出類別標籤為 0 的區域並計算面積
+                    for j, (box, label) in enumerate(zip(boxes, labels)):
+                        if label == 0:  # 假設類別 0 是金屬片
+                            xmin, ymin, xmax, ymax = map(int, box)  # 將座標轉成整數
+                            width = xmax - xmin  # 計算寬度
+                            height = ymax - ymin  # 計算高度
+                            area = width * height  # 計算面積
+                            print(f"Camera: 連線成功 ({camera_index}), Area: {area}")
                 
                 _, jpeg = cv2.imencode(".jpg", display_frame)  # 使用顯示影像進行顯示
                 original_image = Image.open(BytesIO(jpeg))
@@ -197,6 +223,7 @@ def capture_images_from_camera(camera_index, columnIndex, image_label, status_la
             
         process_image(camera, columnIndex, image_label, f"video_{columnIndex}", status_label)
         time.sleep(DELAYTIME)
+
 
 window = tk.Tk()
 window.title('GUI')
